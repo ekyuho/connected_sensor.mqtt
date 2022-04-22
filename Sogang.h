@@ -18,14 +18,13 @@
 
 #include <PubSubClient.h>
 WiFiClient client;
-PubSubClient mqttClient(client);
 
 class Sogang
 {
 public:
 	int user;
 	String apikey;
-	unsigned serial=0;
+	long unsigned serial=0;
 	char *ssid;
 	String topic;
 	int _port;
@@ -34,7 +33,9 @@ public:
 	int _seq = 0;
 	String netstat="init";
 	String version;
-	
+	PubSubClient *mqttClient;
+
+		
 	const char* mqttUser = NULL;
 	const char* mqttPassword = NULL;
 	char tb1[1024], tb2[1024];
@@ -49,11 +50,17 @@ public:
 	void begin(char *_ssid, String _version) {
 		version=_version;
 		ssid= _ssid;
-		topic= "dust/volunteer/data/";
+		topic= "dust/volunteer/";
 		Serial.printf("\n sg.begin(%s, %s)", ssid, topic.c_str());
-		mqttClient.setServer(_host.c_str(), _port);
-		for (int i=0;i<8;i++) clientId += String(random(16), HEX);
-		clientId = String("pub")+"_"+clientId;
+		mqttClient = new PubSubClient(client);
+		mqttClient->setServer(_host.c_str(), _port);
+
+		byte mac[6];
+		char macStr[18] = {0};
+		WiFi.macAddress(mac);
+		sprintf(macStr, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+		apikey = String(macStr);
+		Serial.printf("\n got apikey= %s", apikey.c_str());
 	}
 
 	const char* status2str(int code) {
@@ -73,46 +80,56 @@ public:
 	}
 
 	int connect(){ //ZZ
-		if (!mqttClient.connected()) {
+	
+		if (!mqttClient->connected()) {
 			Serial.printf("\n connecting mqtt server...");
-			if (mqttClient.connect(clientId.c_str(), mqttUser, mqttPassword )) {
+			for (int i=0;i<8;i++) clientId += String(random(16), HEX);
+			clientId = String("pub")+"_"+clientId;
+			if (mqttClient->connect(clientId.c_str(), mqttUser, mqttPassword )) {
 				netstat = "mqtt ok";
-				mqttClient.setKeepAlive(60);
-				mqttClient.setSocketTimeout(60);
+				mqttClient->setKeepAlive(60);
+				mqttClient->setSocketTimeout(60);
 				Serial.printf("connected as %s", clientId.c_str());
-				//sprintf(tb2, "%s/%d", topic, user);
-				//Serial.printf("\nmqtt subscribed %s", topic);
-				//mqttClient.subscribe(topic);
+				sprintf(tb2, "%s%s/ack", topic.c_str(), apikey.c_str());
+				Serial.printf("\nmqtt subscribed %s", tb2);
+				mqttClient->subscribe(tb2);
 				#ifdef USE_BLUETOOTH
 				SerialBT.printf("\ninit mqtt ok");
 				#endif
 			} else {
 				netstat = "mqtt fail";
-				Serial.printf("\nmqtt client_id %s, failed with %d %s", clientId.c_str(), mqttClient.state(), status2str(mqttClient.state()));
+				Serial.printf("\nmqtt client_id %s, failed with %d %s", clientId.c_str(), mqttClient->state(), status2str(mqttClient->state()));
 				Serial.printf("\n check network connection. ");
 				return 0;
 			}
 		}
 		return 1;
 	}
+	
+	void callback(char* rtopic, byte* _payload, unsigned int length) {
+		String payload = "";
+		//Serial.printf("\n gogo len=%d ", length);
+		for (int i=0;i<length;i++) payload +=String((char)_payload[i]);
+		Serial.printf("\n got callback %s %s", rtopic, payload.c_str());
+		if (payload.startsWith("X-ACK:")) {
+			String u_s = payload.substring(6, 12);
+			Serial.printf("\n got %s", u_s);
+			user = u_s.toInt();
+			netstat = "mqtt ok";
+		} else {
+			Serial.printf("\n error");
+		}
+	}
 
 	void send(int pm25, int pm10) {
-		byte mac[6];
-		char macStr[18] = {0};
-		if (apikey == "") {
-			WiFi.macAddress(mac);
-			sprintf(macStr, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-			apikey = String(macStr);
-		}
-
-		sprintf(tb1, "{\"mac\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"topic\":\"%s\",\"version\":\"%s\",\"serial\":%lu,\"pm25\":\"%d\",\"pm10\":\"%d\"}", apikey.c_str(), ssid, WiFi.RSSI(), topic.c_str(), version, serial++,pm25,pm10);
+		sprintf(tb1, "{\"mac\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"topic\":\"%s\",\"version\":\"%s\",\"serial\":%lu,\"pm25\":\"%d\",\"pm10\":\"%d\"}", apikey.c_str(), ssid, WiFi.RSSI(), topic.c_str(), version.c_str(), serial++,pm25,pm10);
 		if (strlen(tb1)>MQTT_MAX_PACKET_SIZE) {
 			Serial.printf("\n pubsub buffer overflow");
 		}
 
 		connect();
-		mqttClient.publish((topic+apikey).c_str(), tb1);
-		Serial.printf("\n%s %s", topic.c_str(), tb1);
+		mqttClient->publish((topic+apikey+"/data").c_str(), tb1);
+		Serial.printf("\n%s %s\n", (topic+apikey+"/data").c_str(), tb1);
 
 
 	#ifdef XX

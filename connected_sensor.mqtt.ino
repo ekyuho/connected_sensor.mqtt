@@ -5,12 +5,14 @@
 // Last Modified: April 21, 2022
 // Released to the public domain
 //
-#define VERSION "V1.1"
+#define VERSION "V3.1"
 #include "MyWifi.h"
 MyWifi mywifi;
 
 #include "Sogang.h"
 Sogang sg; 
+
+#include <Wire.h>
 
 #ifdef ESP32
 HardwareSerial dustport(1); // ESP32 RX:13(TX of Dust Sensor)
@@ -43,18 +45,17 @@ int missings = 0;
 void oled_show(int, int, String);  
 
 void got_dust(int pm25, int pm10) {
-   Serial.printf("%02d: pm25,pm10=", tick++);
-   Serial.println(String(pm25) +","+ String(pm10));
-   pm25s.add(pm25);
-   pm10s.add(pm10);
+	Serial.printf("\n%02d: pm25,pm10=%d,%d", tick++,pm25, pm10);
+	pm25s.add(pm25);
+	pm10s.add(pm10);
 
-   String msg = "";
-   if (!mywifi.isConnected()) msg = "no WIFI";
-   else if (!mywifi.tcp) msg = "no TCP";
-   else if (!mywifi.ack) msg = "no ACK";
-   else if (!sg.user) msg = "waiting";
-   else msg = String(sg.user); 
-   oled_show(pm25, pm10, msg);
+	String msg = "";
+	if (!mywifi.isConnected()) msg = "no WIFI";
+	else if (!mywifi.tcp) msg = "no TCP";
+	else if (!mywifi.ack) msg = "no ACK";
+	else if (!sg.user) msg = "waiting";
+	else msg = String(sg.user); 
+	oled_show(pm25, pm10, msg);
 }
 
 void do_interval() {
@@ -93,20 +94,27 @@ void check_cmd() {
   }
 }
 
+void mycallback(char* rtopic, byte* payload, unsigned int length) {
+	//Serial.printf("\n mycallback");
+	sg.callback(rtopic, payload, length);
+}
+
 void setup() {
 	Serial.begin(115200);
 #ifdef ESP32
-  dustport.begin(9600, SERIAL_8N1, DUSTRX, DUSTTX);
-  pinMode(2, OUTPUT);
+	dustport.begin(9600, SERIAL_8N1, DUSTRX, DUSTTX);
+	pinMode(2, OUTPUT);
+	Wire.begin(14,27);
 #else
-  dustport.begin(9600);
+	dustport.begin(9600);
 #endif
-	sg.begin(mywifi.ssid, VERSION);
-	Serial.println("\n\nDust Sensor Box V2.1, 2020/8/19 by Valve God, Kyuho Kim");  
+	Serial.printf("\n\nDust Sensor Box %s, 2022/4/19 by Valve God, Kyuho Kim", VERSION);
 	oled_setup();
 
 	mywifi.begin();
 	if (mywifi.connect_ap()) Serial.println("Ready to receive sensor data. ");
+	sg.begin(mywifi.ssid, VERSION);
+	sg.mqttClient->setCallback(mycallback);
 	pm25s.clear();
 	pm10s.clear();
 	mark = sec_mark = millis()+5000;
@@ -138,5 +146,6 @@ void loop() {
 	}
  
 	check_cmd();
+	sg.mqttClient->loop();
 	yield();
 }
