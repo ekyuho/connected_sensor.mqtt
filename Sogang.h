@@ -34,6 +34,7 @@ public:
 	String netstat="init";
 	String version;
 	PubSubClient *mqttClient;
+	unsigned turn=0;
 
 		
 	const char* mqttUser = NULL;
@@ -121,93 +122,25 @@ public:
 		}
 	}
 
-	void send(int pm25, int pm10) {
-		sprintf(tb1, "{\"mac\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"topic\":\"%s\",\"version\":\"%s\",\"serial\":%lu,\"pm25\":\"%d\",\"pm10\":\"%d\"}", apikey.c_str(), ssid, WiFi.RSSI(), topic.c_str(), version.c_str(), serial++,pm25,pm10);
-		if (strlen(tb1)>MQTT_MAX_PACKET_SIZE) {
-			Serial.printf("\n pubsub buffer overflow");
-		}
-
+	void send(int pm25, int pm10, String mode) {
 		connect();
-		mqttClient->publish((topic+apikey+"/data").c_str(), tb1);
-		Serial.printf("\n%s %s\n", (topic+apikey+"/data").c_str(), tb1);
-
-
-	#ifdef XX
-		Serial.println(s);
-		http.begin(s);
-
-		int httpCode = http.GET();
-		String line="";
-		if(httpCode == HTTP_CODE_OK) {
-			line = http.getString();
-			Serial.println(line);
-		}
-		http.end();
-		
-		bool ack = false;
-		//Serial.println("s1\n");
-		if (line.startsWith("X-ACK:")) {
-			//Serial.println(line);
-			ack = true;
-			if (!user) {
-				// X-ACK: {"u":212010,"s":0,"i":"0D-1,1D-1","f":"3","time":"2022-04-20T03:09:50","ip":"210.90.237.204"}
-				String u_s = line.substring(8, 11);
-				String user_s = line.substring(12, 18);
-				if (u_s != "\"u\"") {
-					Serial.println("Format Error: "+ line);
-				} else {
-					Serial.printf("got %s\n", user_s.c_str());
-					user = atoi(user_s.c_str());
-				}
+		String tp;
+		if (mode == "minute") {
+			sprintf(tb1, "{\"mac\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d,\"topic\":\"%s\",\"version\":\"%s\",\"serial\":%lu,\"pm25\":\"%d\",\"pm10\":\"%d\"}", apikey.c_str(), ssid, WiFi.RSSI(), topic.c_str(), version.c_str(), serial++,pm25,pm10);
+			if (strlen(tb1)>MQTT_MAX_PACKET_SIZE) {
+				Serial.printf("\n pubsub buffer overflow");
+			}
+			mqttClient->publish((topic+apikey+"/data").c_str(), tb1);
+			Serial.printf("\n%s %s", (topic+apikey+"/data").c_str(), tb1);
+		} else {
+			if (user) {
+				if (turn%2)
+					mqttClient->publish(("dust/"+String(user)+"/pm25").c_str(), String(pm25).c_str());
+				else
+					mqttClient->publish(("dust/"+String(user)+"/pm10").c_str(), String(pm10).c_str());
+				turn++;
 			}
 		}
-
-	  Serial.println("about returning sg.send()\n");
-	  if (!ack) return "no ACK";
-	  return "";
-
-		if (!client.connect(_host.c_str(), _port)) {
-			Serial.printf("\n failed to connect %s:%d", _host.c_str(), _port);
-			return "no ACK";
-		}
-		//Serial.printf("\n tcp connected %s", _host.c_str());
-		client.print(String("GET ")+_path+ payload +" HTTP/1.1\r\n" +
-			 "Host: " + _host + "\r\n" +
-			 "Connection: close\r\n" +
-			 "\r\n"
-			);
-
-		bool ack = false;
-		//Serial.printf("\n waiting data");
-		while (client.connected() || client.available()) {
-			//Serial.printf("\n expecting data...");
-			if (client.available()){
-				String line = client.readStringUntil('\n');
-				Serial.printf("\n %s", line.c_str());
-				if (line.startsWith("X-ACK:")) {
-					//Serial.println(line);
-					ack = true;
-					if (!user) {
-						// X-ACK: {"u":212010,"s":0,"i":"0D-1,1D-1","f":"3","time":"2022-04-20T03:09:50","ip":"210.90.237.204"}
-						String u_s = line.substring(8, 11);
-						String user_s = line.substring(12, 18);
-						if (u_s != "\"u\"") {
-							Serial.println("Format Error: "+ line);
-						} else {
-							Serial.printf("got %s\n", user_s.c_str());
-							user = atoi(user_s.c_str());
-						}
-					}
-				}
-			}
-		}
-		//Serial.printf(" done data");
-		client.stop();
-		Serial.println();
-		if (!ack) return "no ACK";
-		return "";
-	#endif
 	}
-
 };
 #endif

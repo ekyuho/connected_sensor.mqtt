@@ -56,6 +56,7 @@ void got_dust(int pm25, int pm10) {
 	else if (!sg.user) msg = "waiting";
 	else msg = String(sg.user); 
 	oled_show(pm25, pm10, msg);
+	sg.send(pm25, pm10, "realtime");
 }
 
 void do_interval() {
@@ -72,7 +73,7 @@ void do_interval() {
 		Serial.println(pm10);
 	}
 	yield();
-	sg.send(pm25, pm10);
+	sg.send(pm25, pm10, "minute");
 }
 
 void got_cmd() {
@@ -117,7 +118,7 @@ void setup() {
 	sg.mqttClient->setCallback(mycallback);
 	pm25s.clear();
 	pm10s.clear();
-	mark = sec_mark = millis()+5000;
+	mark = sec_mark = 0;
 }
   
 void loop() {
@@ -130,8 +131,8 @@ void loop() {
 		//Serial.println("done interval");
 	}
 	if (current > sec_mark) {
-		sec_mark = current + 1000;
-		if (missings++ > 5) {
+		sec_mark = current + 5000;
+		if (missings++ > 3) {
 			oled_waiting_dust(missings);
 			Serial.printf("No data from dust sensor. check wiring.\n");
 		}
